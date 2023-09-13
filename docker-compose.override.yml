@@ -1,0 +1,17 @@
+version: '3.9'
+
+services:
+  linuxserver:
+    container_name: paperless-ngx
+    image: lscr.io/linuxserver/paperless-ngx:latest
+    environment:
+      - PUID=1026
+      - PGID=100
+      - TZ=Asia/Kuching
+      # - REDIS_URL=
+    ports:
+      - 8080:8000
+    volumes:
+      - '/data/paperless/paperless_ngx:/config'
+      - '/data/paperless/paperless_ngx/data:/data'
+    restart: unless-stopped
