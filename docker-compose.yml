@@ -1,0 +1,93 @@
+version: '3.9'
+
+# mkdir /var/data/config/paperless
+# mkdir /var/data/paperless
+# mkdir /var/data/paperless/consume
+# mkdir /var/data/paperless/data
+# mkdir /var/data/paperless/export
+# mkdir /var/data/paperless/media
+# mkdir /var/data/runtime/paperless/pgdata
+# mkdir /var/data/paperless/database-dump
+
+services:
+  paperless:
+    container_name: paperless
+    image: lscr.io/linuxserver/paperless-ngx
+    env_file:
+      - paperless.env
+    volumes:
+      - /var/data/paperless/data:/usr/src/paperless/data
+      - /var/data/paperless/media:/usr/src/paperless/media
+      - /var/data/paperless/export:/usr/src/paperless/export
+      - /var/data/paperless/consume:/usr/src/paperless/consume
+    restart: unless-stopped
+    depends_on:
+      - redis
+    networks:
+      - internal
+      - traefik_public
+
+  redis:
+    container_name: redis
+    image: redis:latest
+    networks:
+      - internal
+    restart: unless-stopped
+
+  gotenberg:
+    container_name: gotenberg
+    image: thecodingmachine/gotenberg
+    environment:
+      - DISABLE_GOOGLE_CHROME=1
+    networks:
+      - internal
+
+  tika:
+    image: apache/tika
+    networks:
+      - internal
+  
+  db:
+    image: postgres:latest
+    volumes:
+      - /var/data/runtime/paperless/pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=paperless
+      - POSTGRES_USER=paperless
+      - POSTGRES_PASSWORD=paperless
+    networks:
+      - internal
+
+  db-backup:
+    image: postgres:latest
+    volumes:
+      - /var/data/paperless/database-dump:/dump
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      PGHOST: db
+      PGDATABASE: paperless
+      PGUSER: paperless
+      PGPASSWORD: paperless
+      BACKUP_NUM_KEEP: 7
+      BACKUP_FREQUENCY: 1d
+    entrypoint: |
+      bash -c 'bash -s <<EOF
+      trap "break;exit" SIGHUP SIGINT SIGTERM
+      sleep 2m
+      while /bin/true; do
+        pg_dump -Fc > /dump/dump_\`date +%d-%m-%Y"_"%H_%M_%S\`.psql
+        (ls -t /dump/dump*.psql|head -n $$BACKUP_NUM_KEEP;ls /dump/dump*.psql)|sort|uniq -u|xargs rm -- {}
+        sleep $$BACKUP_FREQUENCY
+      done
+      EOF'
+    networks:
+    - internal
+
+networks:
+  traefik_public:
+    external: true
+  internal:
+    driver: overlay
+    ipam:
+      config:
+        - subnet: 172.16.58.0/24
